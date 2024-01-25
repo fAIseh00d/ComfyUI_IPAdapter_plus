@@ -578,7 +578,7 @@ class IPAdapterApply:
         self.is_portrait = "proj.2.weight" in ipadapter["image_proj"] and not "proj.3.weight" in ipadapter["image_proj"] and not "0.to_q_lora.down.weight" in ipadapter["ip_adapter"]
         self.is_faceid = self.is_portrait or "0.to_q_lora.down.weight" in ipadapter["ip_adapter"]
         self.is_plus = (self.is_full or "latents" in ipadapter["image_proj"] or "perceiver_resampler.proj_in.weight" in ipadapter["image_proj"])
-        face_model = None
+        self.face_model = None
 
         if self.is_faceid and not insightface:
             raise Exception('InsightFace must be provided for FaceID models.')
@@ -604,8 +604,8 @@ class IPAdapterApply:
                         insightface.det_model.input_size = size # TODO: hacky but seems to be working
                         face = insightface.get(face_img[i])
                         if face:
-                            face_model = face[0]
-                            face_embed.append(torch.from_numpy(face_model.normed_embedding).unsqueeze(0))
+                            self.face_model = face[0]
+                            face_embed.append(torch.from_numpy(self.face_model.normed_embedding).unsqueeze(0))
                             face_clipvision.append(NPToTensor(insightface_face_align.norm_crop(face_img[i], landmark=face[0].kps, image_size=224)))
 
                             if 640 not in size:
@@ -720,12 +720,12 @@ class IPAdapterApply:
                 set_model_patch_replace(work_model, patch_kwargs, ("middle", 0, index))
                 patch_kwargs["number"] += 1
 
-        if face_model is not None:
-            return (work_model, face_model)
+        if self.face_model is not None:
+            return (work_model, self.face_model)
 
         return (work_model, )
 
-class IPAdapterApplyFaceID(IPAdapterApply):
+class IPAdapterApplyReActorFaceID(IPAdapterApply):
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -751,6 +751,33 @@ class IPAdapterApplyFaceID(IPAdapterApply):
     
     RETURN_TYPES = ("MODEL", "FACE_MODEL")
     RETURN_NAMES = ("model", "face_model")
+
+class IPAdapterApplyFaceID(IPAdapterApply):
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "ipadapter": ("IPADAPTER", ),
+                "clip_vision": ("CLIP_VISION",),
+                "insightface": ("INSIGHTFACE",),
+                "image": ("IMAGE",),
+                "model": ("MODEL", ),
+                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05 }),
+                "noise": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01 }),
+                "weight_type": (["original", "linear", "channel penalty"], ),
+                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
+                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
+                "faceid_v2": ("BOOLEAN", { "default": False }),
+                "weight_v2": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05 }),
+                "unfold_batch": ("BOOLEAN", { "default": False }),
+            },
+            "optional": {
+                "attn_mask": ("MASK",),
+            }
+        }
+    
+    RETURN_TYPES = ("MODEL", )
+    RETURN_NAMES = ("model", )
 
 def prepImage(image, interpolation="LANCZOS", crop_position="center", size=(224,224), sharpening=0.0, padding=0):
     _, oh, ow, _ = image.shape
@@ -1004,6 +1031,7 @@ NODE_CLASS_MAPPINGS = {
     "IPAdapterModelLoader": IPAdapterModelLoader,
     "IPAdapterApply": IPAdapterApply,
     "IPAdapterApplyFaceID": IPAdapterApplyFaceID,
+    "IPAdapterApplyReActorFaceID": IPAdapterApplyReActorFaceID,
     "IPAdapterApplyEncoded": IPAdapterApplyEncoded,
     "PrepImageForClipVision": PrepImageForClipVision,
     "IPAdapterEncoder": IPAdapterEncoder,
@@ -1018,6 +1046,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "IPAdapterModelLoader": "Load IPAdapter Model",
     "IPAdapterApply": "Apply IPAdapter",
     "IPAdapterApplyFaceID": "Apply IPAdapter FaceID",
+    "IPAdapterApplyReActorFaceID": "Apply IPAdapter FaceID from ReActor model",
     "IPAdapterApplyEncoded": "Apply IPAdapter from Encoded",
     "PrepImageForClipVision": "Prepare Image For Clip Vision",
     "IPAdapterEncoder": "Encode IPAdapter Image",
